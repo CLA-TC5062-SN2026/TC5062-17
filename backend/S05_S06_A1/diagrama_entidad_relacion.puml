@@ -1,0 +1,216 @@
+@startuml diagrama_entidad_relacion
+title MLState — Modelo entidad-relación PostgreSQL
+!pragma layout smetana
+hide methods
+hide stereotypes
+skinparam linetype ortho
+
+entity estado_catalogo {
+  * estado_id : UUID <<PK>>
+  --
+  nombre : VARCHAR(120) <<UQ>>
+  activo : BOOLEAN
+}
+entity municipio_catalogo {
+  * municipio_id : UUID <<PK>>
+  --
+  * estado_id : UUID <<FK>>
+  nombre : VARCHAR(120)
+  activo : BOOLEAN
+}
+entity colonia_catalogo {
+  * colonia_id : UUID <<PK>>
+  --
+  * municipio_id : UUID <<FK>>
+  nombre : VARCHAR(160)
+  activo : BOOLEAN
+}
+entity colonia_codigo_postal {
+  * colonia_id : UUID <<PK,FK>>
+  * codigo_postal : CHAR(5) <<PK>>
+}
+entity opcion_catalogo {
+  * opcion_id : UUID <<PK>>
+  --
+  categoria : categoria_opcion_catalogo
+  nombre : VARCHAR(120)
+  activo : BOOLEAN
+}
+entity cobertura {
+  * cobertura_id : UUID <<PK>>
+  --
+  * colonia_id : UUID <<FK>>
+  * tipo_inmueble_id : UUID <<FK>>
+  * uso_suelo_id : UUID <<FK>>
+  activa : BOOLEAN
+}
+
+entity usuario {
+  * usuario_id : UUID <<PK>>
+  --
+  nombre : VARCHAR(120)
+  correo : CITEXT <<UQ>>
+  password_hash : TEXT
+  rol : rol_usuario
+  creado_en : TIMESTAMPTZ
+  activo : BOOLEAN
+}
+entity sesion_autenticada {
+  * sesion_id : UUID <<PK>>
+  --
+  * usuario_id : UUID <<FK>>
+  token_hash : CHAR(64) <<UQ>>
+  creada_en : TIMESTAMPTZ
+  ultima_actividad_en : TIMESTAMPTZ
+  expira_en : TIMESTAMPTZ
+  revocada_en : TIMESTAMPTZ
+}
+entity consulta_anonima {
+  * consulta_id : UUID <<PK>>
+  --
+  estado : estado_consulta
+  recibida_en : TIMESTAMPTZ
+  expira_en : TIMESTAMPTZ
+  session_token_hash : CHAR(64)
+}
+
+entity borrador {
+  * borrador_id : UUID <<PK>>
+  --
+  estado : estado_borrador
+  * cobertura_id : UUID <<FK>>
+  consulta_id : UUID <<FK,UQ>>
+  usuario_id : UUID <<FK>>
+  creado_en : TIMESTAMPTZ
+  actualizado_en : TIMESTAMPTZ
+}
+entity ficha_inmueble {
+  * borrador_id : UUID <<PK,FK>>
+  --
+  superficie_terreno_m2 : NUMERIC(12,2)
+  superficie_construida_m2 : NUMERIC(12,2)
+  habitaciones : INTEGER
+  banos_completos : INTEGER
+  medios_banos : INTEGER
+  estacionamientos : INTEGER
+  antiguedad_anos : INTEGER
+  conservacion : conservacion_inmueble
+  tipo_entrega : VARCHAR(80)
+  remodelada : BOOLEAN
+  anio_remodelacion : INTEGER
+  cuarto_servicio : BOOLEAN
+  cercania_parque : BOOLEAN
+}
+entity ficha_amenidad {
+  * borrador_id : UUID <<PK,FK>>
+  * amenidad : VARCHAR(120) <<PK>>
+}
+entity confirmacion_pendiente {
+  * confirmacion_id : UUID <<PK>>
+  --
+  * borrador_id : UUID <<FK>>
+  campo : VARCHAR(120)
+  valor : JSONB
+  unidad : VARCHAR(40)
+  causa : TEXT
+  version_politica : VARCHAR(120)
+  creada_en : TIMESTAMPTZ
+}
+entity field_error {
+  * field_error_id : UUID <<PK>>
+  --
+  * borrador_id : UUID <<FK>>
+  campo : VARCHAR(120)
+  regla : TEXT
+  valor_recibido : TEXT
+  creado_en : TIMESTAMPTZ
+}
+
+entity estimacion {
+  * estimacion_id : UUID <<PK>>
+  --
+  * consulta_id : UUID <<FK,UQ>>
+  * borrador_id : UUID <<FK,UQ>>
+  valor_minimo : NUMERIC(19,2)
+  valor_central : NUMERIC(19,2)
+  valor_maximo : NUMERIC(19,2)
+  moneda : CHAR(3)
+  precio_m2_construccion : NUMERIC(19,2)
+  margen_error_porcentaje : NUMERIC(7,4)
+  nivel_confianza : nivel_confianza
+  causa_confianza : TEXT
+  explicacion : VARCHAR(300)
+  fecha_calculo : TIMESTAMPTZ
+  actualizacion_datos : TIMESTAMPTZ
+  total_referencias_validas : INTEGER
+  advertencia : TEXT
+}
+entity instantanea_calculo {
+  * estimacion_id : UUID <<PK,FK>>
+  --
+  modelo : VARCHAR(120)
+  datos : VARCHAR(120)
+  politica : VARCHAR(120)
+}
+entity comparable {
+  * comparable_id : UUID <<PK>>
+  --
+  * estimacion_id : UUID <<FK>>
+  orden : SMALLINT
+  colonia : VARCHAR(160)
+  tipo_inmueble : VARCHAR(120)
+  uso_suelo : VARCHAR(120)
+  superficie_terreno_m2 : NUMERIC(12,2)
+  superficie_construida_m2 : NUMERIC(12,2)
+  precio_mxn : NUMERIC(19,2)
+  fecha_referencia : DATE
+  naturaleza : naturaleza_comparable
+}
+entity estimacion_guardada {
+  * usuario_id : UUID <<PK,FK>>
+  * estimacion_id : UUID <<PK,FK,UQ>>
+  --
+  guardada_en : TIMESTAMPTZ
+}
+entity reporte_pdf {
+  * reporte_id : UUID <<PK>>
+  --
+  * estimacion_id : UUID <<FK,UQ>>
+  hash_contenido : CHAR(64) <<UQ>>
+  ubicacion_objeto : TEXT
+  generado_en : TIMESTAMPTZ
+}
+entity idempotencia_estimacion {
+  * idempotency_key : UUID <<PK>>
+  --
+  * estimacion_id : UUID <<FK,UQ>>
+  request_hash : CHAR(64)
+  creada_en : TIMESTAMPTZ
+}
+
+estado_catalogo ||--o{ municipio_catalogo
+municipio_catalogo ||--o{ colonia_catalogo
+colonia_catalogo ||--o{ colonia_codigo_postal
+colonia_catalogo ||--o{ cobertura
+opcion_catalogo ||--o{ cobertura : tipo
+opcion_catalogo ||--o{ cobertura : uso
+
+usuario ||--o{ sesion_autenticada
+usuario |o--o{ borrador
+consulta_anonima |o--o| borrador
+cobertura ||--o{ borrador
+borrador ||--o| ficha_inmueble
+ficha_inmueble ||--o{ ficha_amenidad
+borrador ||--o{ confirmacion_pendiente
+borrador ||--o{ field_error
+
+consulta_anonima ||--o| estimacion
+borrador ||--o| estimacion
+estimacion ||--|| instantanea_calculo
+estimacion ||--o{ comparable
+usuario ||--o{ estimacion_guardada
+estimacion ||--o| estimacion_guardada
+estimacion ||--o| reporte_pdf
+estimacion ||--o| idempotencia_estimacion
+
+@enduml

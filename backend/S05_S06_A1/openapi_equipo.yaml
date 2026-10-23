@@ -1,0 +1,1445 @@
+openapi: 3.0.3
+info:
+  title: MLState API — contrato consolidado del equipo
+  version: 1.1.0
+  description: |
+    Contrato REST consolidado a partir de las propuestas de Alexis y Chris,
+    derivado de SRS_equipo.md y del modelo de dominio definitivo de S05_A1.
+    Todos los importes se expresan en MXN, las
+    superficies en m² y los plazos se calculan con reloj de servidor en UTC.
+    La estimación es orientativa y no sustituye un avalúo profesional.
+  contact:
+    name: Equipo MLState
+  license:
+    name: Uso académico
+servers:
+  - url: /api/v1
+    description: Mismo origen que hospeda la documentación; siempre servido mediante HTTPS.
+
+tags:
+  - name: Catálogos
+    description: Cobertura y elegibilidad de ubicaciones e inmuebles.
+  - name: Borradores
+    description: Captura progresiva y confirmación de datos del inmueble.
+  - name: Estimaciones
+    description: Cálculo, consulta, comparables y reportes.
+  - name: Consultas anónimas
+    description: Recuperación y finalización de consultas temporales.
+  - name: Autenticación
+    description: Registro y sesiones de brokers.
+  - name: Historial
+    description: Estimaciones guardadas por el broker autenticado.
+
+security:
+  - bearerAuth: []
+
+x-design-gaps:
+  - criteria: [RF-03-AC-2]
+    reason: Etiquetado Obligatorio/Opcional; corresponde exclusivamente a la interfaz SPA.
+  - criteria: [RF-03-AC-3]
+    reason: Apertura de ayuda sin pérdida de valores; corresponde a estado e interacción de la SPA.
+  - criteria: [RF-06-AC-2]
+    reason: Conservación visual de campos después de errores; responsabilidad de la SPA.
+  - criteria: [RF-09-AC-2, RF-09-AC-3]
+    reason: Timeout de experiencia, conservación en memoria y descarte de respuestas tardías; responsabilidad de la SPA.
+  - criteria: [RF-10-AC-3]
+    reason: Validación interna del conjunto de datos; no se expone como endpoint público.
+  - criteria: [RF-15-AC-1, RF-15-AC-2]
+    reason: Presencia y visibilidad permanente de la advertencia; se verifica en la interfaz.
+  - criteria: [RF-25-AC-1, RF-25-AC-2]
+    reason: Compartición mediante el puente del sistema operativo; se ejecuta en el cliente.
+
+paths:
+  /catalogos:
+    get:
+      tags: [Catálogos]
+      summary: Consultar el catálogo de cobertura activo
+      operationId: obtenerCatalogos
+      security: []
+      x-acceptance-criteria: [RF-01-AC-1, RF-01-AC-2, RF-01-AC-3, RF-03-AC-1]
+      parameters:
+        - name: estadoId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: municipioId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Catálogo jerárquico con elementos activos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogosResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /evaluaciones-elegibilidad:
+    post:
+      tags: [Catálogos]
+      summary: Verificar elegibilidad antes de completar la captura
+      operationId: verificarElegibilidad
+      security: []
+      x-acceptance-criteria: [RF-02-AC-1, RF-02-AC-2, RF-02-AC-3, RF-04-AC-3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ElegibilidadRequest'
+      responses:
+        '200':
+          description: Combinación elegible; no se invoca el motor de inferencia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElegibilidadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: El código postal corresponde a más de una colonia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColoniaAmbiguaError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /borradores:
+    post:
+      tags: [Borradores]
+      summary: Crear un borrador de estimación
+      operationId: crearBorrador
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+        - {}
+      x-acceptance-criteria: [RF-03-AC-1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrearBorradorRequest'
+      responses:
+        '201':
+          description: Borrador creado sin invocar el motor de inferencia.
+          headers:
+            Location:
+              description: URI del borrador creado.
+              schema:
+                type: string
+                format: uri-reference
+            Set-Cookie:
+              description: Identificador de sesión anónima seguro cuando no existe autenticación.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /borradores/{borradorId}:
+    parameters:
+      - $ref: '#/components/parameters/BorradorId'
+    get:
+      tags: [Borradores]
+      summary: Recuperar un borrador para continuar la captura
+      operationId: obtenerBorrador
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-06-AC-2]
+      responses:
+        '200':
+          description: Estado y valores conservados del borrador.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Borradores]
+      summary: Reemplazar los datos capturados de un borrador
+      operationId: reemplazarBorrador
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-04-AC-1, RF-04-AC-2, RF-05-AC-2]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActualizarBorradorRequest'
+      responses:
+        '200':
+          description: Borrador actualizado y validado sin ejecutar inferencia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Borradores]
+      summary: Confirmar o corregir valores ambiguos de un borrador
+      operationId: confirmarValoresBorrador
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-05-AC-1, RF-05-AC-2, RF-05-AC-3]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ConfirmarValoresRequest'
+      responses:
+        '200':
+          description: Confirmaciones registradas para la versión vigente de la política.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BorradorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /estimaciones:
+    post:
+      tags: [Estimaciones]
+      summary: Calcular una estimación a partir de un borrador completo
+      operationId: crearEstimacion
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria:
+        - RF-05-AC-1
+        - RF-05-AC-3
+        - RF-06-AC-1
+        - RF-06-AC-3
+        - RF-07-AC-1
+        - RF-07-AC-2
+        - RF-07-AC-3
+        - RF-07-AC-4
+        - RF-08-AC-1
+        - RF-08-AC-2
+        - RF-08-AC-3
+        - RF-09-AC-1
+        - RF-10-AC-1
+        - RF-10-AC-2
+        - RF-18-AC-1
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrearEstimacionRequest'
+      responses:
+        '201':
+          description: Estimación creada o resultado idempotente de la misma operación.
+          headers:
+            Location:
+              description: URI de la estimación creada o previamente creada con la misma clave.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimacionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/InferenceUnavailable'
+
+  /estimaciones/{estimacionId}:
+    parameters:
+      - $ref: '#/components/parameters/EstimacionId'
+    get:
+      tags: [Estimaciones]
+      summary: Consultar el resultado completo de una estimación
+      operationId: obtenerEstimacion
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria:
+        - RF-11-AC-1
+        - RF-11-AC-2
+        - RF-11-AC-3
+        - RF-12-AC-1
+        - RF-12-AC-2
+        - RF-12-AC-3
+        - RF-13-AC-1
+        - RF-13-AC-2
+        - RF-13-AC-3
+        - RF-15-AC-1
+      responses:
+        '200':
+          description: Resultado con rango, confianza, explicación y versiones congeladas.
+          headers:
+            Cache-Control:
+              description: Las respuestas de consulta no pueden persistirse en caché.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimacionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /estimaciones/{estimacionId}/comparables:
+    parameters:
+      - $ref: '#/components/parameters/EstimacionId'
+    get:
+      tags: [Estimaciones]
+      summary: Consultar los comparables exhibibles de una estimación
+      operationId: obtenerComparables
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-14-AC-1, RF-14-AC-2, RF-14-AC-3, RF-14-AC-4]
+      responses:
+        '200':
+          description: Entre cero y cinco comparables ordenados por relevancia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparablesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /estimaciones/{estimacionId}/reportes/principal:
+    parameters:
+      - $ref: '#/components/parameters/EstimacionId'
+    put:
+      tags: [Estimaciones]
+      summary: Crear o reemplazar idempotentemente el reporte PDF estable de una estimación
+      operationId: generarReporte
+      security:
+        - bearerAuth: []
+        - anonymousSession: []
+      x-acceptance-criteria:
+        - RF-15-AC-3
+        - RF-18-AC-1
+        - RF-23-AC-1
+        - RF-23-AC-2
+        - RF-23-AC-3
+        - RF-24-AC-1
+        - RF-24-AC-2
+        - RF-24-AC-3
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerarReporteRequest'
+      responses:
+        '200':
+          description: PDF generado sin datos personales ni ubicación exacta.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="estimacion-MLState.pdf"
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /consultas/{consultaId}:
+    parameters:
+      - $ref: '#/components/parameters/ConsultaId'
+    get:
+      tags: [Consultas anónimas]
+      summary: Recuperar una consulta anónima vigente
+      operationId: obtenerConsultaAnonima
+      security:
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-18-AC-2, RF-18-AC-3]
+      responses:
+        '200':
+          description: Consulta anónima vigente con su borrador y resultado.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsultaAnonimaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: La consulta expiró y su contenido ya fue eliminado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Consultas anónimas]
+      summary: Finalizar y eliminar una consulta anónima
+      operationId: finalizarConsultaAnonima
+      security:
+        - anonymousSession: []
+      x-acceptance-criteria: [RF-18-AC-4]
+      responses:
+        '204':
+          description: Consulta, entradas, resultado y reporte temporal eliminados.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /usuarios:
+    post:
+      tags: [Autenticación]
+      summary: Registrar una cuenta de broker
+      operationId: registrarBroker
+      security: []
+      x-acceptance-criteria: [RF-16-AC-1, RF-16-AC-2, RF-16-AC-3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistroRequest'
+      responses:
+        '201':
+          description: Cuenta de broker creada.
+          headers:
+            Location:
+              description: URI del usuario creado.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /sesiones:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión de broker
+      operationId: iniciarSesion
+      security: []
+      x-acceptance-criteria: [RF-17-AC-1, RF-17-AC-2]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: JWT emitido para una sesión autenticada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /sesiones/actual:
+    delete:
+      tags: [Autenticación]
+      summary: Cerrar la sesión autenticada
+      operationId: cerrarSesion
+      x-acceptance-criteria: [RF-17-AC-3]
+      responses:
+        '204':
+          description: Sesión invalidada.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /estimaciones-guardadas:
+    get:
+      tags: [Historial]
+      summary: Consultar y filtrar el historial propio
+      operationId: listarHistorial
+      x-acceptance-criteria: [RF-17-AC-3, RF-20-AC-1, RF-20-AC-2, RF-20-AC-3]
+      parameters:
+        - name: municipioId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: fechaDesde
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: fechaHasta
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: pagina
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Página de estimaciones propias, ordenadas de más reciente a más antigua.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistorialResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /estimaciones-guardadas/{estimacionId}:
+    parameters:
+      - $ref: '#/components/parameters/EstimacionId'
+    put:
+      tags: [Historial]
+      summary: Guardar idempotentemente una estimación en el historial del broker
+      operationId: guardarEstimacion
+      x-acceptance-criteria: [RF-19-AC-1, RF-19-AC-2]
+      responses:
+        '200':
+          description: La estimación ya estaba guardada; la asociación permanece sin duplicarse.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimacionResponse'
+        '201':
+          description: Estimación asociada al broker autenticado.
+          headers:
+            Location:
+              description: URI de la estimación guardada.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimacionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [Historial]
+      summary: Consultar el detalle de una estimación guardada
+      operationId: obtenerEstimacionGuardada
+      x-acceptance-criteria: [RF-21-AC-1, RF-21-AC-2]
+      responses:
+        '200':
+          description: Entradas y salidas completas de la estimación propia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimacionDetalleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Historial]
+      summary: Eliminar una estimación guardada
+      operationId: eliminarEstimacionGuardada
+      x-acceptance-criteria: [RF-22-AC-1, RF-22-AC-2]
+      responses:
+        '204':
+          description: Estimación eliminada del historial.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT firmado con HMAC-SHA256 para sesiones de broker.
+    anonymousSession:
+      type: apiKey
+      in: cookie
+      name: mlstate_anon_session
+      description: Cookie Secure, HttpOnly y SameSite para aislar consultas anónimas.
+
+  parameters:
+    BorradorId:
+      name: borradorId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EstimacionId:
+      name: estimacionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConsultaId:
+      name: consultaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID único de la operación; su reutilización devuelve el mismo resultado.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Solicitud mal formada o parámetros incompatibles.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Credenciales ausentes, inválidas o sesión expirada.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: El recurso no pertenece a la identidad o sesión solicitante.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: El recurso no existe o no debe revelarse a la identidad solicitante.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflicto de estado, suficiencia, habilitación o confirmación invalidada.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: La solicitud no satisface las reglas de entrada o de publicación.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Se superó un límite de tasa o la cuota diaria anónima.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Error interno no esperado, sin exposición de datos sensibles.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InferenceUnavailable:
+      description: El motor de inferencia falló o excedió el timeout de transporte.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [codigo, mensaje]
+      additionalProperties: false
+      properties:
+        codigo:
+          type: string
+          example: CAMPO_FUERA_DE_RANGO
+        mensaje:
+          type: string
+        errores:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        traceId:
+          type: string
+          description: Identificador técnico sin datos personales.
+
+    FieldError:
+      type: object
+      required: [campo, regla]
+      additionalProperties: false
+      properties:
+        campo:
+          type: string
+        regla:
+          type: string
+        valorRecibido:
+          type: string
+          nullable: true
+          description: Representación textual segura del valor rechazado.
+
+    CatalogosResponse:
+      type: object
+      required: [estados, tiposInmueble, usosSuelo]
+      additionalProperties: false
+      properties:
+        estados:
+          type: array
+          items:
+            $ref: '#/components/schemas/EstadoCatalogo'
+        tiposInmueble:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpcionCatalogo'
+        usosSuelo:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpcionCatalogo'
+
+    EstadoCatalogo:
+      type: object
+      required: [estadoId, nombre, municipios]
+      additionalProperties: false
+      properties:
+        estadoId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        municipios:
+          type: array
+          items:
+            $ref: '#/components/schemas/MunicipioCatalogo'
+
+    MunicipioCatalogo:
+      type: object
+      required: [municipioId, nombre, colonias]
+      additionalProperties: false
+      properties:
+        municipioId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        colonias:
+          type: array
+          items:
+            $ref: '#/components/schemas/ColoniaCatalogo'
+
+    ColoniaCatalogo:
+      type: object
+      required: [coloniaId, nombre, codigosPostales]
+      additionalProperties: false
+      properties:
+        coloniaId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        codigosPostales:
+          type: array
+          items:
+            type: string
+            pattern: '^\d{5}$'
+
+    OpcionCatalogo:
+      type: object
+      required: [id, nombre]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+
+    ElegibilidadRequest:
+      type: object
+      required: [estadoId, municipioId, tipoInmuebleId, usoSueloId]
+      additionalProperties: false
+      properties:
+        estadoId:
+          type: string
+          format: uuid
+        municipioId:
+          type: string
+          format: uuid
+        coloniaId:
+          type: string
+          format: uuid
+        codigoPostal:
+          type: string
+          pattern: '^\d{5}$'
+        tipoInmuebleId:
+          type: string
+          format: uuid
+        usoSueloId:
+          type: string
+          format: uuid
+      oneOf:
+        - required: [coloniaId]
+        - required: [codigoPostal]
+
+    ElegibilidadResponse:
+      type: object
+      required: [elegible, coberturaId, colonia]
+      additionalProperties: false
+      properties:
+        elegible:
+          type: boolean
+          enum: [true]
+        coberturaId:
+          type: string
+          format: uuid
+        colonia:
+          $ref: '#/components/schemas/ColoniaCatalogo'
+
+    ColoniaAmbiguaError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required: [opciones]
+          properties:
+            opciones:
+              type: array
+              minItems: 2
+              items:
+                $ref: '#/components/schemas/ColoniaCatalogo'
+
+    CrearBorradorRequest:
+      type: object
+      required: [coberturaId]
+      additionalProperties: false
+      properties:
+        coberturaId:
+          type: string
+          format: uuid
+        ficha:
+          $ref: '#/components/schemas/FichaInmuebleInput'
+
+    ActualizarBorradorRequest:
+      type: object
+      required: [coberturaId, ficha]
+      additionalProperties: false
+      properties:
+        coberturaId:
+          type: string
+          format: uuid
+        ficha:
+          $ref: '#/components/schemas/FichaInmuebleInput'
+
+    ConfirmarValoresRequest:
+      type: object
+      required: [versionPolitica, confirmaciones]
+      additionalProperties: false
+      properties:
+        versionPolitica:
+          type: string
+        confirmaciones:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [campo, valor, confirmado]
+            additionalProperties: false
+            properties:
+              campo:
+                type: string
+              valor: {}
+              confirmado:
+                type: boolean
+                enum: [true]
+
+    BorradorResponse:
+      type: object
+      required: [borradorId, estado, coberturaId, ficha, actualizadoEn, errores, confirmacionesPendientes]
+      additionalProperties: false
+      properties:
+        borradorId:
+          type: string
+          format: uuid
+        estado:
+          type: string
+          enum: [incompleto, requiere_confirmacion, listo]
+        coberturaId:
+          type: string
+          format: uuid
+        ficha:
+          $ref: '#/components/schemas/FichaInmuebleInput'
+        actualizadoEn:
+          type: string
+          format: date-time
+        errores:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        confirmacionesPendientes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfirmacionPendiente'
+
+    ConfirmacionPendiente:
+      type: object
+      required: [campo, valor, causa]
+      additionalProperties: false
+      properties:
+        campo:
+          type: string
+        valor: {}
+        unidad:
+          type: string
+        causa:
+          type: string
+
+    FichaInmuebleInput:
+      type: object
+      additionalProperties: false
+      properties:
+        superficieTerrenoM2:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          multipleOf: 0.01
+        superficieConstruidaM2:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          multipleOf: 0.01
+        habitaciones:
+          type: integer
+          minimum: 1
+        banosCompletos:
+          type: integer
+          minimum: 1
+        mediosBanos:
+          type: integer
+          minimum: 0
+        estacionamientos:
+          type: integer
+          minimum: 0
+        antiguedadAnos:
+          type: integer
+          minimum: 0
+        conservacion:
+          type: string
+          enum: [buena, regular, mala]
+        tipoEntrega:
+          type: string
+        amenidades:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        remodelada:
+          type: boolean
+        anioRemodelacion:
+          type: integer
+          minimum: 1800
+        cuartoServicio:
+          type: boolean
+        cercaniaParque:
+          type: boolean
+
+    CrearEstimacionRequest:
+      type: object
+      required: [borradorId]
+      additionalProperties: false
+      properties:
+        borradorId:
+          type: string
+          format: uuid
+
+    EstimacionResponse:
+      type: object
+      required:
+        - estimacionId
+        - consultaId
+        - valorMinimo
+        - valorCentral
+        - valorMaximo
+        - moneda
+        - precioM2Construccion
+        - margenErrorPorcentaje
+        - nivelConfianza
+        - explicacion
+        - fechaCalculo
+        - actualizacionDatos
+        - versiones
+        - advertencia
+      additionalProperties: false
+      properties:
+        estimacionId:
+          type: string
+          format: uuid
+        consultaId:
+          type: string
+          format: uuid
+        valorMinimo:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+        valorCentral:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+        valorMaximo:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+        moneda:
+          type: string
+          enum: [MXN]
+        precioM2Construccion:
+          type: number
+          format: double
+          minimum: 0
+          multipleOf: 0.01
+        margenErrorPorcentaje:
+          type: number
+          format: double
+          minimum: 0
+        nivelConfianza:
+          type: string
+          enum: [baja, media, alta]
+        causaConfianza:
+          type: string
+        explicacion:
+          type: string
+          minLength: 15
+          maxLength: 300
+        fechaCalculo:
+          type: string
+          format: date-time
+        actualizacionDatos:
+          type: string
+          format: date-time
+        versiones:
+          $ref: '#/components/schemas/InstantaneaCalculo'
+        advertencia:
+          type: string
+          enum:
+            - Estimación orientativa de MLState. No sustituye un avalúo profesional, bancario u oficial ni garantiza el precio final de venta
+
+    InstantaneaCalculo:
+      type: object
+      required: [modelo, datos, politica]
+      additionalProperties: false
+      properties:
+        modelo:
+          type: string
+        datos:
+          type: string
+        politica:
+          type: string
+
+    ComparablesResponse:
+      type: object
+      required: [estimacionId, totalReferenciasValidas, comparables]
+      additionalProperties: false
+      properties:
+        estimacionId:
+          type: string
+          format: uuid
+        totalReferenciasValidas:
+          type: integer
+          minimum: 0
+        comparables:
+          type: array
+          minItems: 0
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/Comparable'
+
+    Comparable:
+      type: object
+      required:
+        - comparableId
+        - orden
+        - colonia
+        - tipoInmueble
+        - usoSuelo
+        - superficieTerrenoM2
+        - superficieConstruidaM2
+        - precioMXN
+        - fechaReferencia
+        - naturaleza
+      additionalProperties: false
+      properties:
+        comparableId:
+          type: string
+          format: uuid
+        orden:
+          type: integer
+          minimum: 1
+          maximum: 5
+        colonia:
+          type: string
+        tipoInmueble:
+          type: string
+        usoSuelo:
+          type: string
+        superficieTerrenoM2:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+        superficieConstruidaM2:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+        precioMXN:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+        fechaReferencia:
+          type: string
+          format: date
+        naturaleza:
+          type: string
+          enum: [cierre, publicacion, avaluo]
+
+    GenerarReporteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        formato:
+          type: string
+          enum: [pdf]
+          default: pdf
+
+    ConsultaAnonimaResponse:
+      type: object
+      required: [consultaId, estado, recibidaEn, expiraEn, borrador]
+      additionalProperties: false
+      properties:
+        consultaId:
+          type: string
+          format: uuid
+        estado:
+          type: string
+          enum: [borrador, calculada]
+        recibidaEn:
+          type: string
+          format: date-time
+        expiraEn:
+          type: string
+          format: date-time
+        borrador:
+          $ref: '#/components/schemas/BorradorResponse'
+        estimacion:
+          $ref: '#/components/schemas/EstimacionResponse'
+
+    RegistroRequest:
+      type: object
+      required: [nombre, correo, contrasena]
+      additionalProperties: false
+      properties:
+        nombre:
+          type: string
+          minLength: 1
+          maxLength: 120
+        correo:
+          type: string
+          format: email
+          maxLength: 254
+        contrasena:
+          type: string
+          format: password
+          minLength: 10
+          pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{10,}$'
+          writeOnly: true
+
+    UsuarioResponse:
+      type: object
+      required: [usuarioId, nombre, correo, rol, creadoEn]
+      additionalProperties: false
+      properties:
+        usuarioId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+        correo:
+          type: string
+          format: email
+        rol:
+          type: string
+          enum: [broker]
+        creadoEn:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required: [correo, contrasena]
+      additionalProperties: false
+      properties:
+        correo:
+          type: string
+          format: email
+        contrasena:
+          type: string
+          format: password
+          writeOnly: true
+
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, usuario]
+      additionalProperties: false
+      properties:
+        accessToken:
+          type: string
+          description: JWT firmado; nunca se incluye en una URL.
+          readOnly: true
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Vigencia máxima por inactividad, en segundos.
+          example: 7200
+        usuario:
+          $ref: '#/components/schemas/UsuarioResponse'
+
+    HistorialResponse:
+      type: object
+      required: [pagina, tamanoPagina, total, elementos]
+      additionalProperties: false
+      properties:
+        pagina:
+          type: integer
+          minimum: 1
+        tamanoPagina:
+          type: integer
+          enum: [20]
+        total:
+          type: integer
+          minimum: 0
+        elementos:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/HistorialItem'
+
+    HistorialItem:
+      type: object
+      required: [estimacionId, fechaCalculo, municipio, colonia, valorCentral, moneda, nivelConfianza]
+      additionalProperties: false
+      properties:
+        estimacionId:
+          type: string
+          format: uuid
+        fechaCalculo:
+          type: string
+          format: date-time
+        municipio:
+          type: string
+        colonia:
+          type: string
+        valorCentral:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+        moneda:
+          type: string
+          enum: [MXN]
+        nivelConfianza:
+          type: string
+          enum: [baja, media, alta]
+
+    EstimacionDetalleResponse:
+      allOf:
+        - $ref: '#/components/schemas/EstimacionResponse'
+        - type: object
+          required: [ficha, comparables]
+          properties:
+            ficha:
+              $ref: '#/components/schemas/FichaInmuebleInput'
+            comparables:
+              type: array
+              minItems: 0
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/Comparable'

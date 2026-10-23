@@ -1,0 +1,243 @@
+@startuml diagrama_clases_equipo
+title Modelo de clases consolidado — MLState
+!pragma layout smetana
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+left to right direction
+
+package "Catálogos y elegibilidad" {
+  class CatalogosResponse <<response>> {
+    + estados: EstadoCatalogo[]
+    + tiposInmueble: OpcionCatalogo[]
+    + usosSuelo: OpcionCatalogo[]
+  }
+  class EstadoCatalogo {
+    + estadoId: UUID
+    + nombre: String
+    + municipios: MunicipioCatalogo[]
+  }
+  class MunicipioCatalogo {
+    + municipioId: UUID
+    + nombre: String
+    + colonias: ColoniaCatalogo[]
+  }
+  class ColoniaCatalogo {
+    + coloniaId: UUID
+    + nombre: String
+    + codigosPostales: String[]
+  }
+  class OpcionCatalogo {
+    + id: UUID
+    + nombre: String
+  }
+  class ElegibilidadRequest <<request>> {
+    + estadoId: UUID
+    + municipioId: UUID
+    + coloniaId: UUID [0..1]
+    + codigoPostal: String [0..1]
+    + tipoInmuebleId: UUID
+    + usoSueloId: UUID
+  }
+  class ElegibilidadResponse <<response>> {
+    + elegible: Boolean
+    + coberturaId: UUID
+    + colonia: ColoniaCatalogo
+  }
+}
+
+package "Captura" {
+  class Borrador <<response>> {
+    + borradorId: UUID
+    + estado: EstadoBorrador
+    + coberturaId: UUID
+    + ficha: FichaInmueble
+    + actualizadoEn: DateTime
+    + errores: FieldError[]
+    + confirmacionesPendientes: ConfirmacionPendiente[]
+  }
+  class FichaInmueble <<request>> {
+    + superficieTerrenoM2: Decimal [0..1]
+    + superficieConstruidaM2: Decimal [0..1]
+    + habitaciones: Integer [0..1]
+    + banosCompletos: Integer [0..1]
+    + mediosBanos: Integer [0..1]
+    + estacionamientos: Integer [0..1]
+    + antiguedadAnos: Integer [0..1]
+    + conservacion: String [0..1]
+    + tipoEntrega: String [0..1]
+    + amenidades: String[] [0..1]
+    + remodelada: Boolean [0..1]
+    + anioRemodelacion: Integer [0..1]
+    + cuartoServicio: Boolean [0..1]
+    + cercaniaParque: Boolean [0..1]
+  }
+  class ConfirmacionPendiente {
+    + campo: String
+    + valor: Any
+    + unidad: String [0..1]
+    + causa: String
+  }
+  enum EstadoBorrador {
+    incompleto
+    requiere_confirmacion
+    listo
+  }
+}
+
+package "Estimaciones" {
+  class Estimacion <<response>> {
+    + estimacionId: UUID
+    + consultaId: UUID
+    + valorMinimo: Decimal
+    + valorCentral: Decimal
+    + valorMaximo: Decimal
+    + moneda: String
+    + precioM2Construccion: Decimal
+    + margenErrorPorcentaje: Decimal
+    + nivelConfianza: NivelConfianza
+    + causaConfianza: String [0..1]
+    + explicacion: String
+    + fechaCalculo: DateTime
+    + actualizacionDatos: DateTime
+    + versiones: InstantaneaCalculo
+    + advertencia: String
+  }
+  class InstantaneaCalculo {
+    + modelo: String
+    + datos: String
+    + politica: String
+  }
+  class ComparablesResponse <<response>> {
+    + estimacionId: UUID
+    + totalReferenciasValidas: Integer
+    + comparables: Comparable[]
+  }
+  class Comparable {
+    + comparableId: UUID
+    + orden: Integer
+    + colonia: String
+    + tipoInmueble: String
+    + usoSuelo: String
+    + superficieTerrenoM2: Decimal
+    + superficieConstruidaM2: Decimal
+    + precioMXN: Decimal
+    + fechaReferencia: Date
+    + naturaleza: NaturalezaComparable
+  }
+  enum NivelConfianza {
+    baja
+    media
+    alta
+  }
+  enum NaturalezaComparable {
+    cierre
+    publicacion
+    avaluo
+  }
+}
+
+package "Identidad, consultas e historial" {
+  class ConsultaAnonima <<response>> {
+    + consultaId: UUID
+    + estado: EstadoConsulta
+    + recibidaEn: DateTime
+    + expiraEn: DateTime
+    + borrador: Borrador
+    + estimacion: Estimacion [0..1]
+  }
+  enum EstadoConsulta {
+    borrador
+    calculada
+  }
+  class Usuario <<response>> {
+    + usuarioId: UUID
+    + nombre: String
+    + correo: String
+    + rol: String
+    + creadoEn: DateTime
+  }
+  class SesionAutenticada <<response>> {
+    + accessToken: String
+    + tokenType: String
+    + expiresIn: Integer
+    + usuario: Usuario
+  }
+  class HistorialResponse <<response>> {
+    + pagina: Integer
+    + tamanoPagina: Integer
+    + total: Integer
+    + elementos: HistorialItem[]
+  }
+  class HistorialItem {
+    + estimacionId: UUID
+    + fechaCalculo: DateTime
+    + municipio: String
+    + colonia: String
+    + valorCentral: Decimal
+    + moneda: String
+    + nivelConfianza: NivelConfianza
+  }
+}
+
+package "Errores" {
+  class ErrorResponse <<response>> {
+    + codigo: String
+    + mensaje: String
+    + errores: FieldError[] [0..1]
+    + traceId: String [0..1]
+  }
+  class FieldError {
+    + campo: String
+    + regla: String
+    + valorRecibido: String [0..1]
+  }
+}
+
+CatalogosResponse "1" *-- "0..*" EstadoCatalogo : estados
+CatalogosResponse "1" *-- "0..*" OpcionCatalogo : tipos y usos
+EstadoCatalogo "1" *-- "0..*" MunicipioCatalogo : contiene
+MunicipioCatalogo "1" *-- "0..*" ColoniaCatalogo : contiene
+ElegibilidadRequest ..> EstadoCatalogo : referencia IDs
+ElegibilidadResponse "1" --> "1" ColoniaCatalogo : resuelve
+
+Borrador "1" *-- "1" FichaInmueble : captura
+Borrador "1" *-- "0..*" ConfirmacionPendiente : informa
+Borrador "1" *-- "0..*" FieldError : valida
+Borrador --> EstadoBorrador
+
+ConsultaAnonima "1" *-- "1" Borrador : conserva
+ConsultaAnonima "1" *-- "0..1" Estimacion : produce
+ConsultaAnonima --> EstadoConsulta
+Estimacion "1" *-- "1" InstantaneaCalculo : congela
+Estimacion --> NivelConfianza
+ComparablesResponse "1" *-- "0..5" Comparable : presenta
+ComparablesResponse "0..1" --> "1" Estimacion : corresponde
+Comparable --> NaturalezaComparable
+
+SesionAutenticada "0..*" --> "1" Usuario : autentica
+Usuario "1" --> "0..*" HistorialItem : guarda
+HistorialResponse "1" *-- "0..20" HistorialItem : pagina
+HistorialItem --> NivelConfianza
+ErrorResponse "1" *-- "0..*" FieldError : detalla
+
+note right of FichaInmueble
+  Corresponde a FichaInmuebleInput.
+  Los opcionales ausentes no se sustituyen
+  por cero, falso ni valores inventados.
+end note
+
+note right of Estimacion
+  Corresponde a EstimacionResponse.
+  Invariante:
+  0 < valorMinimo <= valorCentral <= valorMaximo
+  moneda = MXN
+end note
+
+note right of InstantaneaCalculo
+  Los identificadores modelo, datos y politica
+  corresponden al objeto versiones del API.
+end note
+
+@enduml

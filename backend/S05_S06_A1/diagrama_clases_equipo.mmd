@@ -1,0 +1,209 @@
+classDiagram
+    direction LR
+
+    class EstadoCatalogo {
+        +UUID estadoId
+        +String nombre
+        +MunicipioCatalogo[] municipios
+    }
+    class MunicipioCatalogo {
+        +UUID municipioId
+        +String nombre
+        +ColoniaCatalogo[] colonias
+    }
+    class ColoniaCatalogo {
+        +UUID coloniaId
+        +String nombre
+        +String[] codigosPostales
+    }
+    class OpcionCatalogo {
+        +UUID id
+        +String nombre
+    }
+    class CatalogosResponse {
+        +EstadoCatalogo[] estados
+        +OpcionCatalogo[] tiposInmueble
+        +OpcionCatalogo[] usosSuelo
+    }
+    class ElegibilidadRequest {
+        +UUID estadoId
+        +UUID municipioId
+        +UUID coloniaId
+        +String codigoPostal
+        +UUID tipoInmuebleId
+        +UUID usoSueloId
+    }
+    class ElegibilidadResponse {
+        +Boolean elegible
+        +UUID coberturaId
+        +ColoniaCatalogo colonia
+    }
+
+    class Borrador {
+        +UUID borradorId
+        +EstadoBorrador estado
+        +UUID coberturaId
+        +FichaInmueble ficha
+        +DateTime actualizadoEn
+        +FieldError[] errores
+        +ConfirmacionPendiente[] confirmacionesPendientes
+    }
+    class FichaInmueble {
+        +Decimal superficieTerrenoM2
+        +Decimal superficieConstruidaM2
+        +Integer habitaciones
+        +Integer banosCompletos
+        +Integer mediosBanos
+        +Integer estacionamientos
+        +Integer antiguedadAnos
+        +String conservacion
+        +String tipoEntrega
+        +String[] amenidades
+        +Boolean remodelada
+        +Integer anioRemodelacion
+        +Boolean cuartoServicio
+        +Boolean cercaniaParque
+    }
+    class ConfirmacionPendiente {
+        +String campo
+        +Any valor
+        +String unidad
+        +String causa
+    }
+
+    class Estimacion {
+        +UUID estimacionId
+        +UUID consultaId
+        +Decimal valorMinimo
+        +Decimal valorCentral
+        +Decimal valorMaximo
+        +String moneda
+        +Decimal precioM2Construccion
+        +Decimal margenErrorPorcentaje
+        +NivelConfianza nivelConfianza
+        +String causaConfianza
+        +String explicacion
+        +DateTime fechaCalculo
+        +DateTime actualizacionDatos
+        +InstantaneaCalculo versiones
+        +String advertencia
+    }
+    class InstantaneaCalculo {
+        +String modelo
+        +String datos
+        +String politica
+    }
+    class Comparable {
+        +UUID comparableId
+        +Integer orden
+        +String colonia
+        +String tipoInmueble
+        +String usoSuelo
+        +Decimal superficieTerrenoM2
+        +Decimal superficieConstruidaM2
+        +Decimal precioMXN
+        +Date fechaReferencia
+        +NaturalezaComparable naturaleza
+    }
+    class ComparablesResponse {
+        +UUID estimacionId
+        +Integer totalReferenciasValidas
+        +Comparable[] comparables
+    }
+    class ConsultaAnonima {
+        +UUID consultaId
+        +EstadoConsulta estado
+        +DateTime recibidaEn
+        +DateTime expiraEn
+        +Borrador borrador
+        +Estimacion estimacion
+    }
+
+    class Usuario {
+        +UUID usuarioId
+        +String nombre
+        +String correo
+        +String rol
+        +DateTime creadoEn
+    }
+    class SesionAutenticada {
+        +String accessToken
+        +String tokenType
+        +Integer expiresIn
+        +Usuario usuario
+    }
+    class HistorialItem {
+        +UUID estimacionId
+        +DateTime fechaCalculo
+        +String municipio
+        +String colonia
+        +Decimal valorCentral
+        +String moneda
+        +NivelConfianza nivelConfianza
+    }
+    class HistorialResponse {
+        +Integer pagina
+        +Integer tamanoPagina
+        +Integer total
+        +HistorialItem[] elementos
+    }
+    class ErrorResponse {
+        +String codigo
+        +String mensaje
+        +FieldError[] errores
+        +String traceId
+    }
+    class FieldError {
+        +String campo
+        +String regla
+        +String valorRecibido
+    }
+
+    class EstadoBorrador {
+        <<enumeration>>
+        incompleto
+        requiere_confirmacion
+        listo
+    }
+    class EstadoConsulta {
+        <<enumeration>>
+        borrador
+        calculada
+    }
+    class NivelConfianza {
+        <<enumeration>>
+        baja
+        media
+        alta
+    }
+    class NaturalezaComparable {
+        <<enumeration>>
+        cierre
+        publicacion
+        avaluo
+    }
+
+    CatalogosResponse "1" *-- "0..*" EstadoCatalogo : estados
+    CatalogosResponse "1" *-- "0..*" OpcionCatalogo : tipos y usos
+    EstadoCatalogo "1" *-- "0..*" MunicipioCatalogo : contiene
+    MunicipioCatalogo "1" *-- "0..*" ColoniaCatalogo : contiene
+    ElegibilidadRequest ..> EstadoCatalogo : referencia IDs
+    ElegibilidadResponse "1" --> "1" ColoniaCatalogo : resuelve
+
+    Borrador "1" *-- "1" FichaInmueble : captura
+    Borrador "1" *-- "0..*" ConfirmacionPendiente : informa
+    Borrador "1" *-- "0..*" FieldError : valida
+    ConsultaAnonima "1" *-- "1" Borrador : conserva
+    ConsultaAnonima "1" *-- "0..1" Estimacion : produce
+    Estimacion "1" *-- "1" InstantaneaCalculo : congela
+    ComparablesResponse "1" *-- "0..5" Comparable : presenta
+    ComparablesResponse "0..1" --> "1" Estimacion : corresponde
+    SesionAutenticada "0..*" --> "1" Usuario : autentica
+    Usuario "1" --> "0..*" HistorialItem : guarda
+    HistorialResponse "1" *-- "0..20" HistorialItem : pagina
+    ErrorResponse "1" *-- "0..*" FieldError : detalla
+
+    note for FichaInmueble "Alineada con FichaInmuebleInput. Los opcionales ausentes permanecen ausentes; no se inventan valores."
+    note for Estimacion "Alineada con EstimacionResponse. Invariante: 0 < valorMinimo <= valorCentral <= valorMaximo; moneda = MXN."
+    note for InstantaneaCalculo "Los tres identificadores corresponden al objeto versiones del API y preservan la reproducibilidad."
+    note for ConsultaAnonima "Se elimina al finalizar o al vencer 60 minutos; no crea una identidad personal."
