@@ -27,6 +27,65 @@ FICHA_COLUMNAS = {
 }
 
 
+def get_user_by_email(conn: Connection, email: str) -> dict[str, Any] | None:
+    try:
+        row = conn.execute(
+            "SELECT * FROM usuario WHERE LOWER(correo)=LOWER(%s)",
+            (email,),
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        try:
+            row = conn.execute(
+                "SELECT * FROM usuario WHERE correo=%s",
+                (email,),
+            ).fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
+
+
+def get_user_by_id(conn: Connection, user_id: UUID) -> dict[str, Any] | None:
+    try:
+        row = conn.execute(
+            "SELECT * FROM usuario WHERE usuario_id=%s",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def create_user(conn: Connection, nombre: str, correo: str, password_hash: str, rol: str = "broker") -> dict[str, Any]:
+    try:
+        row = conn.execute(
+            """
+            INSERT INTO usuario (nombre, correo, password_hash, rol)
+            VALUES (%s, %s, %s, %s)
+            RETURNING usuario_id, nombre, correo, rol, creado_en, activo
+            """,
+            (nombre.strip(), correo.lower(), password_hash, rol),
+        ).fetchone()
+        return dict(row)
+    except Exception as e:
+        raise e
+
+
+def user_to_response(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "usuarioId": user.get("usuario_id") or user.get("usuarioId") or user.get("id"),
+        "id": user.get("usuario_id") or user.get("usuarioId") or user.get("id"),
+        "nombre": user.get("nombre") or user.get("name"),
+        "name": user.get("nombre") or user.get("name"),
+        "correo": user.get("correo") or user.get("email"),
+        "email": user.get("correo") or user.get("email"),
+        "rol": user.get("rol") or user.get("role") or "broker",
+        "role": user.get("rol") or user.get("role") or "broker",
+        "creadoEn": user.get("creado_en") or user.get("creadoEn") or user.get("created_at"),
+        "created_at": user.get("creado_en") or user.get("creadoEn") or user.get("created_at"),
+    }
+
+
 def colonia_response(conn: Connection, colonia_id: UUID) -> dict[str, Any]:
     row = conn.execute(
         "SELECT colonia_id, nombre FROM colonia_catalogo WHERE colonia_id=%s AND activo",

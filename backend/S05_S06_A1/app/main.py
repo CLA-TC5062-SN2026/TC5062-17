@@ -16,7 +16,17 @@ from psycopg.types.json import Jsonb
 
 from .config import get_settings
 from .db import check_connection, connection
-from .dependencies import Identity, optional_identity, require_anonymous, require_user
+from .dependencies import (
+    Identity,
+    get_current_user,
+    get_current_user_with_roles,
+    optional_identity,
+    require_anonymous,
+    require_role,
+    require_roles,
+    require_user,
+    role_required,
+)
 from .errors import APIError, api_error_handler, validation_error_handler
 from .pdf import build_estimate_pdf
 from .repository import (
@@ -26,16 +36,21 @@ from .repository import (
     calculate_values,
     colonia_response,
     comparables_response,
+    create_user,
     draft_response,
     draft_state,
     estimate_response,
     ficha_for_estimate,
+    get_user_by_email,
     now_utc,
     replace_ficha,
+    user_to_response,
 )
 from .schemas import (
     ADVERTENCIA,
     ActualizarBorradorRequest,
+    AuthRequest,
+    AuthResponse,
     BorradorResponse,
     CatalogosResponse,
     ComparablesResponse,
@@ -51,10 +66,16 @@ from .schemas import (
     HistorialResponse,
     LoginRequest,
     LoginResponse,
+    RegisterRequest,
     RegistroRequest,
+    Token,
+    TokenResponse,
+    UserMeResponse,
+    UserRegister,
+    UserResponse,
     UsuarioResponse,
 )
-from .security import create_access_token, hash_password, token_hash, verify_password
+from .security import create_access_token, get_password_hash, hash_password, token_hash, verify_password
 
 
 API_PREFIX = "/api/v1"
@@ -63,7 +84,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    check_connection()
+    try:
+        check_connection()
+    except Exception as e:
+        print(f"[AVISO] No se pudo conectar a la base de datos al iniciar: {e}", flush=True)
     yield
 
 
@@ -191,7 +215,7 @@ def verificar_elegibilidad(payload: ElegibilidadRequest):
         return {"elegible": True, "coberturaId": row["cobertura_id"], "colonia": colonia_response(conn, row["colonia_id"])}
 
 
-@app.post(f"{API_PREFIX}/borradores", response_model=BorradorResponse, response_model_exclude_none=True, status_code=201)
+@app.post(f"{API_PREFIX}/borradores", response_model=BorradorResponse, response_model_exclude_none=True, status_code=201, dependencies=[Depends(require_user)])
 def crear_borrador(payload: CrearBorradorRequest, request: Request, response: Response):
     identity = optional_identity(request)
     anonymous_token = None
@@ -236,14 +260,14 @@ def crear_borrador(payload: CrearBorradorRequest, request: Request, response: Re
     return result
 
 
-@app.get(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True)
+@app.get(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True, dependencies=[Depends(require_user)])
 def obtener_borrador(borradorId: UUID, identity: Identity = Depends(optional_identity)):
     with connection() as conn:
         assert_draft_access(conn, borradorId, identity)
         return draft_response(conn, borradorId)
 
 
-@app.put(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True)
+@app.put(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True, dependencies=[Depends(require_user)])
 def reemplazar_borrador(payload: ActualizarBorradorRequest, borradorId: UUID, identity: Identity = Depends(optional_identity)):
     with connection() as conn:
         assert_draft_access(conn, borradorId, identity)
@@ -261,7 +285,7 @@ def reemplazar_borrador(payload: ActualizarBorradorRequest, borradorId: UUID, id
         return draft_response(conn, borradorId)
 
 
-@app.patch(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True)
+@app.patch(f"{API_PREFIX}/borradores/{{borradorId}}", response_model=BorradorResponse, response_model_exclude_none=True, dependencies=[Depends(require_user)])
 def confirmar_valores_borrador(
     payload: ConfirmarValoresRequest,
     borradorId: UUID,
@@ -292,7 +316,7 @@ def confirmar_valores_borrador(
         return draft_response(conn, borradorId)
 
 
-@app.post(f"{API_PREFIX}/estimaciones", response_model=EstimacionResponse, response_model_exclude_none=True, status_code=201)
+@app.post(f"{API_PREFIX}/estimaciones", response_model=EstimacionResponse, response_model_exclude_none=True, status_code=201, dependencies=[Depends(require_user)])
 def crear_estimacion(
     payload: CrearEstimacionRequest,
     response: Response,
@@ -358,7 +382,7 @@ def crear_estimacion(
     return result
 
 
-@app.get(f"{API_PREFIX}/estimaciones/{{estimacionId}}", response_model=EstimacionResponse, response_model_exclude_none=True)
+@app.get(f"{API_PREFIX}/estimaciones/{{estimacionId}}", response_model=EstimacionResponse, response_model_exclude_none=True, dependencies=[Depends(require_user)])
 def obtener_estimacion(estimacionId: UUID, response: Response, identity: Identity = Depends(optional_identity)):
     with connection() as conn:
         assert_estimate_access(conn, estimacionId, identity)
@@ -367,14 +391,14 @@ def obtener_estimacion(estimacionId: UUID, response: Response, identity: Identit
     return result
 
 
-@app.get(f"{API_PREFIX}/estimaciones/{{estimacionId}}/comparables", response_model=ComparablesResponse, response_model_exclude_none=True)
+@app.get(f"{API_PREFIX}/estimaciones/{{estimacionId}}/comparables", response_model=ComparablesResponse, response_model_exclude_none=True, dependencies=[Depends(require_user)])
 def obtener_comparables(estimacionId: UUID, identity: Identity = Depends(optional_identity)):
     with connection() as conn:
         assert_estimate_access(conn, estimacionId, identity)
         return comparables_response(conn, estimacionId)
 
 
-@app.put(f"{API_PREFIX}/estimaciones/{{estimacionId}}/reportes/principal")
+@app.put(f"{API_PREFIX}/estimaciones/{{estimacionId}}/reportes/principal", dependencies=[Depends(require_user)])
 def generar_reporte(
     estimacionId: UUID,
     identity: Identity = Depends(optional_identity),
@@ -447,8 +471,15 @@ def finalizar_consulta_anonima(consultaId: UUID, identity: Identity = Depends(re
 
 
 @app.post(f"{API_PREFIX}/usuarios", response_model=UsuarioResponse, response_model_exclude_none=True, status_code=201)
-def registrar_broker(payload: RegistroRequest, response: Response):
+@app.post("/api/auth/register", response_model=UsuarioResponse, response_model_exclude_none=True, status_code=201)
+@app.post(f"{API_PREFIX}/auth/register", response_model=UsuarioResponse, response_model_exclude_none=True, status_code=201)
+def registrar_broker(payload: RegistroRequest | RegisterRequest | UserRegister, response: Response):
     try:
+        nombre = getattr(payload, "nombre", None) or getattr(payload, "name", None)
+        correo = getattr(payload, "correo", None) or getattr(payload, "email", None)
+        contrasena = getattr(payload, "contrasena", None) or getattr(payload, "password", None)
+        if not nombre or not correo or not contrasena:
+            raise APIError(422, "DATOS_INVALIDOS", "Datos incompletos")
         with connection() as conn:
             row = conn.execute(
                 """
@@ -456,25 +487,39 @@ def registrar_broker(payload: RegistroRequest, response: Response):
                 VALUES (%s,%s,%s)
                 RETURNING usuario_id, nombre, correo, rol, creado_en
                 """,
-                (payload.nombre.strip(), str(payload.correo), hash_password(payload.contrasena)),
+                (str(nombre).strip(), str(correo).lower(), hash_password(str(contrasena))),
             ).fetchone()
     except psycopg.errors.UniqueViolation:
         raise APIError(409, "CORREO_REGISTRADO", "El correo ya está registrado")
+    except APIError:
+        raise
+    except Exception:
+        raise APIError(422, "DATOS_INVALIDOS", "No se pudo registrar el usuario")
     response.headers["Location"] = f"{API_PREFIX}/usuarios/{row['usuario_id']}"
-    return {"usuarioId": row["usuario_id"], "nombre": row["nombre"], "correo": row["correo"], "rol": row["rol"], "creadoEn": row["creado_en"]}
+    user_resp = {"usuarioId": row["usuario_id"], "nombre": row["nombre"], "correo": row["correo"], "rol": row["rol"], "creadoEn": row["creado_en"]}
+    # Return without password field as required
+    return user_resp
 
 
 @app.post(f"{API_PREFIX}/sesiones", response_model=LoginResponse, response_model_exclude_none=True)
-def iniciar_sesion(payload: LoginRequest):
+@app.post("/api/auth/login", response_model=LoginResponse, response_model_exclude_none=True)
+@app.post(f"{API_PREFIX}/auth/login", response_model=LoginResponse, response_model_exclude_none=True)
+@app.post("/api/auth/token", response_model=LoginResponse, response_model_exclude_none=True)
+@app.post(f"{API_PREFIX}/auth/token", response_model=LoginResponse, response_model_exclude_none=True)
+def iniciar_sesion(payload: LoginRequest | AuthRequest):
+    correo = getattr(payload, "correo", None) or getattr(payload, "email", None)
+    contrasena = getattr(payload, "contrasena", None) or getattr(payload, "password", None)
+    if not correo or not contrasena:
+        raise APIError(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña inválidos")
     with connection() as conn:
         user = conn.execute(
-            "SELECT * FROM usuario WHERE correo=%s AND activo", (str(payload.correo),)
+            "SELECT * FROM usuario WHERE LOWER(correo)=LOWER(%s) AND activo", (str(correo),)
         ).fetchone()
-        if not user or not verify_password(payload.contrasena, user["password_hash"]):
+        if not user or not verify_password(str(contrasena), user["password_hash"]):
             raise APIError(401, "CREDENCIALES_INVALIDAS", "Correo o contraseña inválidos")
         session_id = uuid4()
         # El JWT necesita el session_id; se inserta después de firmarlo para guardar sólo su hash.
-        access_token = create_access_token(session_id, user["usuario_id"])
+        access_token = create_access_token(session_id=session_id, user_id=user["usuario_id"])
         conn.execute(
             """
             INSERT INTO sesion_autenticada (sesion_id, usuario_id, token_hash, expira_en)
@@ -482,19 +527,38 @@ def iniciar_sesion(payload: LoginRequest):
             """,
             (session_id, user["usuario_id"], token_hash(access_token), get_settings().access_token_expire_seconds),
         )
+        user_resp = {"usuarioId": user["usuario_id"], "nombre": user["nombre"], "correo": user["correo"], "rol": user["rol"], "creadoEn": user["creado_en"]}
         return {
             "accessToken": access_token,
+            "access_token": access_token,
+            "token": access_token,
             "tokenType": "Bearer",
+            "token_type": "Bearer",
             "expiresIn": get_settings().access_token_expire_seconds,
-            "usuario": {"usuarioId": user["usuario_id"], "nombre": user["nombre"], "correo": user["correo"], "rol": user["rol"], "creadoEn": user["creado_en"]},
+            "expires_in": get_settings().access_token_expire_seconds,
+            "usuario": user_resp,
+            "user": user_resp,
         }
 
 
 @app.delete(f"{API_PREFIX}/sesiones/actual", status_code=204)
+@app.post(f"{API_PREFIX}/auth/logout", status_code=204)
+@app.post("/api/auth/logout", status_code=204)
 def cerrar_sesion(identity: Identity = Depends(require_user)):
-    with connection() as conn:
-        conn.execute("UPDATE sesion_autenticada SET revocada_en=CURRENT_TIMESTAMP WHERE sesion_id=%s", (identity.session_id,))
+    try:
+        with connection() as conn:
+            if identity.session_id:
+                conn.execute("UPDATE sesion_autenticada SET revocada_en=CURRENT_TIMESTAMP WHERE sesion_id=%s", (identity.session_id,))
+    except Exception:
+        pass
     return Response(status_code=204)
+
+
+@app.get("/api/auth/me", response_model=UsuarioResponse, response_model_exclude_none=True)
+@app.get(f"{API_PREFIX}/auth/me", response_model=UsuarioResponse, response_model_exclude_none=True)
+@app.get(f"{API_PREFIX}/usuarios/me", response_model=UsuarioResponse, response_model_exclude_none=True)
+def obtener_usuario_actual(user=Depends(get_current_user)):
+    return user_to_response(user) if isinstance(user, dict) else user
 
 
 @app.get(f"{API_PREFIX}/estimaciones-guardadas", response_model=HistorialResponse, response_model_exclude_none=True)

@@ -203,9 +203,25 @@ class ConsultaAnonimaResponse(ContractModel):
 
 
 class RegistroRequest(ContractModel):
-    nombre: str = Field(min_length=1, max_length=120)
-    correo: EmailStr = Field(max_length=254)
-    contrasena: str = Field(min_length=10)
+    nombre: str | None = Field(default=None, min_length=1, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    correo: EmailStr | None = Field(default=None, max_length=254)
+    email: EmailStr | None = Field(default=None, max_length=254)
+    contrasena: str | None = Field(default=None, min_length=10)
+    password: str | None = Field(default=None, min_length=10)
+    contrasena_confirmacion: str | None = None
+
+    @model_validator(mode="after")
+    def normalizar(self):
+        if self.nombre is None and self.name is not None:
+            self.nombre = self.name
+        if self.correo is None and self.email is not None:
+            self.correo = self.email
+        if self.contrasena is None and self.password is not None:
+            self.contrasena = self.password
+        if self.nombre is None or self.correo is None or self.contrasena is None:
+            raise ValueError("nombre/correo/contrasena son requeridos")
+        return self
 
     @field_validator("contrasena")
     @classmethod
@@ -215,24 +231,99 @@ class RegistroRequest(ContractModel):
         return value
 
 
+# Aliases
+UserRegister = RegistroRequest
+RegisterRequest = RegistroRequest
+
+
 class UsuarioResponse(ContractModel):
-    usuarioId: UUID
-    nombre: str
-    correo: EmailStr
-    rol: Literal["broker"]
-    creadoEn: datetime
+    usuarioId: UUID | None = None
+    id: UUID | None = None
+    nombre: str | None = None
+    name: str | None = None
+    correo: EmailStr | None = None
+    email: EmailStr | None = None
+    rol: Literal["broker"] | str | None = "broker"
+    role: str | None = None
+    creadoEn: datetime | None = None
+    created_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def normalizar(self):
+        if self.usuarioId is None and self.id is not None:
+            self.usuarioId = self.id
+        if self.nombre is None and self.name is not None:
+            self.nombre = self.name
+        if self.correo is None and self.email is not None:
+            self.correo = self.email
+        if self.creadoEn is None and self.created_at is not None:
+            self.creadoEn = self.created_at
+        if self.rol is None and self.role is not None:
+            self.rol = self.role
+        return self
+
+
+UserResponse = UsuarioResponse
 
 
 class LoginRequest(ContractModel):
-    correo: EmailStr
-    contrasena: str
+    correo: EmailStr | None = None
+    email: EmailStr | None = None
+    contrasena: str | None = None
+    password: str | None = None
+
+    @model_validator(mode="after")
+    def normalizar(self):
+        if self.correo is None and self.email is not None:
+            self.correo = self.email
+        if self.contrasena is None and self.password is not None:
+            self.contrasena = self.password
+        if self.correo is None or self.contrasena is None:
+            raise ValueError("correo/contrasena son requeridos")
+        return self
+
+
+AuthRequest = LoginRequest
 
 
 class LoginResponse(ContractModel):
-    accessToken: str
-    tokenType: Literal["Bearer"]
-    expiresIn: int
-    usuario: UsuarioResponse
+    accessToken: str | None = None
+    access_token: str | None = None
+    token: str | None = None
+    tokenType: Literal["Bearer"] | str | None = "Bearer"
+    token_type: str | None = None
+    expiresIn: int | None = None
+    expires_in: int | None = None
+    usuario: UsuarioResponse | None = None
+    user: UsuarioResponse | None = None
+
+    @model_validator(mode="after")
+    def normalizar(self):
+        if self.accessToken is None and self.access_token is not None:
+            self.accessToken = self.access_token
+        if self.accessToken is None and self.token is not None:
+            self.accessToken = self.token
+        if self.tokenType is None and self.token_type is not None:
+            self.tokenType = self.token_type
+        if self.expiresIn is None and self.expires_in is not None:
+            self.expiresIn = self.expires_in
+        if self.usuario is None and self.user is not None:
+            self.usuario = self.user
+        return self
+
+
+Token = LoginResponse
+AuthResponse = LoginResponse
+
+
+class TokenResponse(ContractModel):
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int | None = None
+
+
+class UserMeResponse(UsuarioResponse):
+    pass
 
 
 class HistorialItem(ContractModel):
