@@ -18,7 +18,7 @@ flowchart LR
     share["Puente de compartición del SO"]
 
     subgraph MLState["Sistema MLState"]
-        spa["SPA React + Vite / PWA<br/>captura, resultado, historial y PDF"]
+        spa["SPA Vue 3 + Vite<br/>captura, resultado, historial y PDF"]
 
         subgraph api["API FastAPI — monolito modular"]
             routes["Capa API<br/>contrato /api/v1"]
